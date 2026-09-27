@@ -76,13 +76,7 @@ def get_source_file_path(context: Dict[str, Any]) -> str:
 
 def get_db_manager() -> DatabaseManager:
     """Returns DatabaseManager using environment variables with local defaults."""
-    return DatabaseManager(
-        host=os.getenv("POSTGRES_HOST", "127.0.0.1"),
-        port=int(os.getenv("POSTGRES_PORT", "5433")),
-        dbname=os.getenv("POSTGRES_DB", "ewaybill_dw"),
-        user=os.getenv("POSTGRES_USER", "postgres"),
-        password=os.getenv("POSTGRES_PASSWORD", "Saksham@3124")
-    )
+    return DatabaseManager()
 
 
 def compute_deterministic_run_id(context: Dict[str, Any]) -> str:

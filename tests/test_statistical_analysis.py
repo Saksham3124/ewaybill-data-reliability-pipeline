@@ -315,13 +315,7 @@ def test_statistical_report_generation(engine, real_datasets, tmp_path):
 
 def test_database_persistence_integration(engine, real_datasets):
     """Test persisting statistical results into PostgreSQL statistical_results table."""
-    db_mgr = DatabaseManager(
-        host="127.0.0.1",
-        port=5433,
-        dbname="ewaybill_dw",
-        user="postgres",
-        password=os.getenv("POSTGRES_PASSWORD", "Saksham@3124")
-    )
+    db_mgr = DatabaseManager()
     try:
         conn = db_mgr.get_connection()
         conn.close()
@@ -358,4 +352,11 @@ def test_database_persistence_integration(engine, real_datasets):
             assert method_counts["YOY_CHANGE"] == 189  # 99 + 90
             assert method_counts["CROSS_YEAR_OBSERVATION"] == 1
     finally:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM statistical_results WHERE run_id = %s;", (run_id,))
+                cur.execute("DELETE FROM pipeline_runs WHERE run_id = %s;", (run_id,))
+            conn.commit()
+        except Exception:
+            pass
         conn.close()

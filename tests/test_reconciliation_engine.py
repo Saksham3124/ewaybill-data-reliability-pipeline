@@ -213,13 +213,7 @@ def test_synthetic_cross_table_discrepancy_produces_warning(engine, real_dataset
 def test_reconciliation_persistence(engine, real_dataset):
     """Test persistence of all 103 reconciliation results into PostgreSQL."""
     raw_data, norm_tables = real_dataset
-    db_mgr = DatabaseManager(
-        host="127.0.0.1",
-        port=5433,
-        dbname="ewaybill_dw",
-        user="postgres",
-        password=os.getenv("POSTGRES_PASSWORD", "Saksham@3124")
-    )
+    db_mgr = DatabaseManager()
 
     try:
         conn = db_mgr.get_connection()
@@ -246,6 +240,13 @@ def test_reconciliation_persistence(engine, real_dataset):
             count = cur.fetchone()[0]
             assert count == 103
     finally:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM reconciliation_results WHERE run_id = %s;", (run_id,))
+                cur.execute("DELETE FROM pipeline_runs WHERE run_id = %s;", (run_id,))
+            conn.commit()
+        except Exception:
+            pass
         conn.close()
 
 

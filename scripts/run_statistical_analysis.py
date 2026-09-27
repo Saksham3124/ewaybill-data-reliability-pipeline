@@ -53,13 +53,7 @@ def main():
 
     # 2. Database connection & Pipeline Run initialization
     print("\n3. Connecting to PostgreSQL database...")
-    db_mgr = DatabaseManager(
-        host="127.0.0.1",
-        port=5433,
-        dbname="ewaybill_dw",
-        user="postgres",
-        password=os.getenv("POSTGRES_PASSWORD", "Saksham@3124")
-    )
+    db_mgr = DatabaseManager()
     db_mgr.init_schema("sql/schema.sql")
     repo = EwayBillRepository(db_mgr)
 

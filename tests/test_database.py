@@ -14,16 +14,43 @@ from src.ingestion.loader import EwayBillSourceLoader
 from src.transformation.normalizer import EwayBillNormalizer
 
 
+from unittest.mock import patch
+
+
+def test_database_manager_default_configuration():
+    """Verifies that DatabaseManager defaults to 127.0.0.1:5434 without environment variables."""
+    non_pg_env = {k: v for k, v in os.environ.items() if not k.startswith("POSTGRES_")}
+    with patch.dict(os.environ, non_pg_env, clear=True):
+        mgr = DatabaseManager()
+        assert mgr.host == "127.0.0.1"
+        assert mgr.port == 5434
+        assert mgr.dbname == "ewaybill_dw"
+        assert mgr.user == "postgres"
+        assert mgr.password == "postgres"
+
+
+def test_database_manager_docker_override():
+    """Verifies that DatabaseManager respects Docker container environment overrides (postgres:5432)."""
+    docker_env = {
+        "POSTGRES_HOST": "postgres",
+        "POSTGRES_PORT": "5432",
+        "POSTGRES_DB": "ewaybill_dw",
+        "POSTGRES_USER": "postgres",
+        "POSTGRES_PASSWORD": "postgres"
+    }
+    with patch.dict(os.environ, docker_env):
+        mgr = DatabaseManager()
+        assert mgr.host == "postgres"
+        assert mgr.port == 5432
+        assert mgr.dbname == "ewaybill_dw"
+        assert mgr.user == "postgres"
+        assert mgr.password == "postgres"
+
+
 @pytest.fixture(scope="module")
 def db_manager():
-    # Attempt to connect using environment variables or discovered port
-    mgr = DatabaseManager(
-        host="127.0.0.1",
-        port=5433,
-        dbname="ewaybill_dw",
-        user="postgres",
-        password=os.getenv("POSTGRES_PASSWORD", "Saksham@3124")
-    )
+    # Connect using DatabaseManager default configuration (127.0.0.1:5434)
+    mgr = DatabaseManager()
     try:
         conn = mgr.get_connection()
         conn.close()

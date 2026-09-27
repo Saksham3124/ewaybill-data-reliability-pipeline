@@ -86,6 +86,27 @@ def test_database_configuration_handling():
             mock_conn.set_session.assert_called_once_with(readonly=True, autocommit=True)
 
 
+def test_database_configuration_defaults():
+    """Verifies that get_db_connection falls back to 127.0.0.1:5434 and ewaybill_dw without env vars."""
+    with patch("psycopg2.connect") as mock_connect:
+        mock_conn = MagicMock()
+        mock_connect.return_value = mock_conn
+
+        non_pg_env = {k: v for k, v in os.environ.items() if not k.startswith("POSTGRES_")}
+        with patch.dict(os.environ, non_pg_env, clear=True):
+            conn = da.get_db_connection()
+
+            mock_connect.assert_called_once_with(
+                host="127.0.0.1",
+                port=5434,
+                dbname="ewaybill_dw",
+                user="postgres",
+                password="postgres",
+                connect_timeout=5
+            )
+            mock_conn.set_session.assert_called_once_with(readonly=True, autocommit=True)
+
+
 # -----------------------------------------------------------------------------
 # 3. Read-Only Codebase & Security Guarantees
 # -----------------------------------------------------------------------------

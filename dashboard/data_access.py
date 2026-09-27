@@ -21,10 +21,10 @@ import streamlit as st
 def get_db_connection():
     """Returns a read-only PostgreSQL database connection using environment variables."""
     host = os.getenv("POSTGRES_HOST", "127.0.0.1")
-    port = int(os.getenv("POSTGRES_PORT", "5433"))
+    port = int(os.getenv("POSTGRES_PORT", "5434"))
     dbname = os.getenv("POSTGRES_DB", "ewaybill_dw")
     user = os.getenv("POSTGRES_USER", "postgres")
-    password = os.getenv("POSTGRES_PASSWORD", "Saksham@3124")
+    password = os.getenv("POSTGRES_PASSWORD", "postgres")
 
     conn = psycopg2.connect(
         host=host,

@@ -62,13 +62,7 @@ def main():
 
     # 3. Capture baseline database trusted table counts
     print("\n3. Capturing baseline PostgreSQL warehouse table counts...")
-    db_mgr = DatabaseManager(
-        host="127.0.0.1",
-        port=5433,
-        dbname="ewaybill_dw",
-        user="postgres",
-        password=os.getenv("POSTGRES_PASSWORD", "Saksham@3124")
-    )
+    db_mgr = DatabaseManager()
     conn = db_mgr.get_connection()
     trusted_counts_baseline = {}
     try:

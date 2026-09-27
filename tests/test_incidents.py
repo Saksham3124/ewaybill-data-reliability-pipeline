@@ -26,13 +26,7 @@ from src.incidents.manager import IncidentManager
 
 
 def get_test_db():
-    return DatabaseManager(
-        host=os.getenv("POSTGRES_HOST", "127.0.0.1"),
-        port=int(os.getenv("POSTGRES_PORT", "5433")),
-        dbname=os.getenv("POSTGRES_DB", "ewaybill_dw"),
-        user=os.getenv("POSTGRES_USER", "postgres"),
-        password=os.getenv("POSTGRES_PASSWORD", "Saksham@3124")
-    )
+    return DatabaseManager()
 
 
 # -----------------------------------------------------------------------------

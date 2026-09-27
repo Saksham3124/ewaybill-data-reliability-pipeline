@@ -22,8 +22,8 @@ class DatabaseManager:
                  dbname: Optional[str] = None,
                  user: Optional[str] = None,
                  password: Optional[str] = None):
-        self.host = host or os.getenv("POSTGRES_HOST", "localhost")
-        self.port = port or int(os.getenv("POSTGRES_PORT", "5433"))
+        self.host = host or os.getenv("POSTGRES_HOST", "127.0.0.1")
+        self.port = port or int(os.getenv("POSTGRES_PORT", "5434"))
         self.dbname = dbname or os.getenv("POSTGRES_DB", "ewaybill_dw")
         self.user = user or os.getenv("POSTGRES_USER", "postgres")
         self.password = password or os.getenv("POSTGRES_PASSWORD", "postgres")

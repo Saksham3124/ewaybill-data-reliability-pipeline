@@ -226,13 +226,7 @@ def test_full_runner_execution(runner, clean_datasets):
 
 def test_production_database_isolation(runner, clean_datasets):
     """Test that running corruption simulations leaves production warehouse tables unmodified."""
-    db_mgr = DatabaseManager(
-        host="127.0.0.1",
-        port=5433,
-        dbname="ewaybill_dw",
-        user="postgres",
-        password=os.getenv("POSTGRES_PASSWORD", "Saksham@3124")
-    )
+    db_mgr = DatabaseManager()
     try:
         conn = db_mgr.get_connection()
     except Exception as e:
