@@ -1,0 +1,28 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# Environment Variables & Secrets
+.env
+*.env
+!.env.example
+
+# Logs & Airflow Runtime
+*.log
+logs/
+airflow.db
+airflow.cfg
+
+# OS Specific
+.DS_Store
+Thumbs.db
+
+# Generated scratch files and test artifacts
+scratch_*.json
+scratch/
+data/corrupted_*.xlsx

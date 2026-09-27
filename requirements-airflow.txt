@@ -1,0 +1,18 @@
+# =============================================================================
+# requirements-airflow.txt
+# ------------------------
+# Pinned dependencies for Apache Airflow 2.10.5 (Python 3.12).
+#
+# CRITICAL COMPATIBILITY NOTE:
+# Apache Airflow 2.10.5 ships with pandas 2.1.4, compiled against NumPy 1.x C ABI.
+# NumPy 2.x introduces a C-structure ABI break (PyArray_Descr 88 -> 96 bytes)
+# that triggers:
+#   ValueError: numpy.dtype size changed, may indicate binary incompatibility.
+#
+# We strictly pin numpy==1.26.4 and scipy==1.13.1 (the last release supporting
+# NumPy 1.x on Python 3.12) to guarantee full C-level binary compatibility.
+# =============================================================================
+numpy==1.26.4
+pandas==2.1.4
+scipy==1.13.1
+openpyxl==3.1.5

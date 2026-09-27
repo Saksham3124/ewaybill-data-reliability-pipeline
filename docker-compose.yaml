@@ -1,0 +1,121 @@
+# =============================================================================
+# docker-compose.yaml
+# --------------------
+# Minimal, reproducible local Apache Airflow orchestration environment
+# for the E-Way Bill Data Reliability & Reconciliation Pipeline.
+#
+# Services included:
+# - postgres: PostgreSQL 17 database (warehouse & Airflow metadata)
+# - airflow-init: One-shot DB migration & default admin user creation
+# - airflow-webserver: Airflow UI on http://localhost:8080
+# - airflow-scheduler: Airflow DAG scheduling & task execution engine
+#
+# Explicitly excluded (out of scope):
+# - No Celery
+# - No Redis
+# - No Spark
+# - No Kafka
+# =============================================================================
+
+version: '3.8'
+
+x-airflow-common: &airflow-common
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: ewaybill-airflow:2.10.5
+  environment:
+    - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+    - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://postgres:postgres@postgres:5432/airflow_meta
+    - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=false
+    - AIRFLOW__CORE__LOAD_EXAMPLES=false
+    - AIRFLOW__API__AUTH_BACKENDS=airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session
+    - PYTHONPATH=/opt/airflow
+    # Pipeline Data Warehouse Connection Parameters
+    - POSTGRES_HOST=postgres
+    - POSTGRES_PORT=5432
+    - POSTGRES_DB=ewaybill_dw
+    - POSTGRES_USER=postgres
+    - POSTGRES_PASSWORD=postgres
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./src:/opt/airflow/src
+    - ./data:/opt/airflow/data
+    - ./sql:/opt/airflow/sql
+    - ./docs:/opt/airflow/docs
+    - ./logs:/opt/airflow/logs
+    - ./dashboard:/opt/airflow/dashboard
+  user: "${AIRFLOW_UID:-50000}:0"
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: ewaybill-postgres
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_MULTIPLE_DATABASES=airflow_meta,ewaybill_dw
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./sql/init_multiple_dbs.sh:/docker-entrypoint-initdb.d/init_multiple_dbs.sh:ro
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+  airflow-init:
+    <<: *airflow-common
+    container_name: ewaybill-airflow-init
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate && \
+        airflow users create \
+          --username admin \
+          --firstname Admin \
+          --lastname User \
+          --role Admin \
+          --email admin@example.com \
+          --password admin || true
+    restart: "no"
+
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: ewaybill-airflow-webserver
+    command: webserver
+    ports:
+      - "8080:8080"
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    restart: always
+
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: ewaybill-airflow-scheduler
+    command: scheduler
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    restart: always
+
+volumes:
+  postgres-data:
