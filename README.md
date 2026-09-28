@@ -131,7 +131,7 @@ reliability_decision
 
 The Airflow DAG handles orchestration and task dependencies while the core validation, reconciliation, statistical, and incident logic remains in `src/`.
 
-> **Screenshot — Airflow DAG:** Add a screenshot of the Airflow DAG graph here.
+![Airflow DAG](docs/screenshots/airflow-dag.png)
 
 ---
 
@@ -356,9 +356,9 @@ The run:
 | Incidents | 0 | **1 CRITICAL** |
 | Corrupted data promoted | No | **No** |
 
-> **Screenshot — Clean Run:** Add Airflow/Streamlit screenshot showing the successful run and trusted-data promotion here.
+![Clean Pipeline Run](docs/screenshots/clean-run.png)
 
-> **Screenshot — Failure Run:** Add Airflow/Streamlit screenshot showing the failed reliability gate here.
+![Failure Pipeline Run](docs/screenshots/failure-run.png)
 
 ---
 
@@ -422,7 +422,7 @@ Only blocking `CRITICAL` or `ERROR` failures trigger the incident workflow.
 
 Email notification is optional and configured through environment variables. The database incident record remains authoritative if notification is disabled or unavailable.
 
-> **Screenshot — Incident:** Add the CRITICAL incident detail screenshot here.
+![Incident Detail](docs/screenshots/incident-detail.png)
 
 ---
 
@@ -512,7 +512,7 @@ It does not:
 - Delete warehouse data
 - Alter database schema
 
-> **Screenshot — Dashboard Overview:** Add the clean/failure Streamlit Overview screenshot here.
+![Streamlit Dashboard Overview](docs/screenshots/failure-run.png)
 
 ---
 
