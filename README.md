@@ -96,12 +96,12 @@ Audits 6 mathematical relationships observed across independent worksheets:
 * **REC-DO04**: State column marginal sums in Table I match state outward column sums in Table III.
 * **REC-DO05**: State row marginal sums in Table I match state inward column sums in Table IV.
 * **REC-DO06**: State-level trade balance across all 33 states and union territories.
-  * **Advisory Status**: 32 of 33 jurisdictions pass within numerical tolerance. `OTHER TERRITORY` exhibits an unresolved cross-table discrepancy in the published source data. Under pipeline governance, this is classified as advisory **`UNRESOLVED`** and does not block data promotion.
+  * **Advisory Status**: 32 of 33 jurisdictions pass within numerical tolerance. A numerical divergence is observed in the FY2023–24 cross-table reconciliation for `OTHER TERRITORY`. The available source methodology does not provide sufficient information to explain the difference, so the condition is retained as UNRESOLVED and governed as a non-blocking advisory.
 
 ### 4.3 Year-over-Year Statistical Analysis
 Compares annual snapshots between **FY 2022–23** (reference baseline) and **FY 2023–24** (current comparison snapshot):
 * **Kolmogorov-Smirnov (KS) Two-Sample Test**: Evaluates whether annual distributions share the same continuous shape ($\alpha = 0.05$).
-* **Population Stability Index (PSI)**: Quantifies bucketed shift magnitude across annual snapshots ($< 0.10$ stable, $0.10–0.25$ moderate, $\ge 0.25$ significant).
+* **Population Stability Index (PSI)**: Quantifies bucketed shift magnitude across annual snapshots using project-configured interpretation thresholds ($< 0.10$ indicating low shift, $0.10–0.25$ moderate shift, $\ge 0.25$ significant shift). PSI serves as a descriptive distribution-shift signal between annual snapshots, not as universal evidence of data-quality failure.
 * **Year-over-Year Change Deltas**: State and chapter-level growth percentages with zero-denominator safeguards.
 * **Epistemic Boundary**: `STATISTICALLY_DIFFERENT` is treated as an informational signal reflecting annual magnitude differences, **not** as a pipeline failure or proof of data corruption.
 
@@ -121,14 +121,14 @@ The following figures represent measured, empirical results from the verified en
 | :--- | :---: | :---: |
 | **Airflow DAG Tasks Scheduled** | 10 tasks executed | 10 tasks evaluated |
 | **Airflow Run State** | `success` | `failed` (halted at gate) |
-| **Validation Evaluations** | **52 / 52 PASS** | 1 detected failure (`REC-V02`) |
-| **Reconciliation Evaluations** | **102 PASS, 1 UNRESOLVED** | 102 PASS, 1 UNRESOLVED |
+| **Validation Evaluations** | **52 / 52 PASS** | **52 / 52 PASS** |
+| **Reconciliation Evaluations** | **99 PASS, 4 advisory/unresolved, 0 FAIL** | 1 detected failure (`REC-V02`) |
 | **Statistical Test Results** | **204 comparisons evaluated** | 204 comparisons evaluated |
 | **Reliability Gate Decision** | **`PASS`** | **`FAIL`** |
 | **Promotion to Trusted Warehouse** | **10,089 rows promoted** | **0 rows promoted (BLOCKED)** |
 | **Incident Created in PostgreSQL** | **0 incidents** | **1 incident created (`CRITICAL`)** |
 | **Clean Warehouse Lineage Preserved** | Verified | Verified (10,089 clean rows untainted) |
-| **Full Pytest Test Suite** | **122 / 122 passed (100%)** | **122 / 122 passed (100%)** |
+| **Full Pytest Test Suite** | **125 passed, 0 failed, 1 warning** | **125 passed, 0 failed, 1 warning** |
 | **Official Source SHA-256 Hashes** | Unchanged | Unchanged (Byte-for-byte identical) |
 
 ---
@@ -167,6 +167,26 @@ The platform includes a read-only Streamlit dashboard (`dashboard/app.py`) for o
 
 ## 8. Quickstart & Reproducibility Guide
 
+### 8.1 Local Runtime Architecture
+
+The environment uses a single, shared PostgreSQL instance running inside Docker Compose:
+
+```
+Local Windows:
+Streamlit / pytest / CLI
+        │
+        │ 127.0.0.1:5434
+        ▼
+ Docker PostgreSQL
+        ▲
+        │ postgres:5432
+        │
+Airflow containers
+```
+
+* **Host-side access (Windows)**: Docker publishes PostgreSQL container port `5432` to host port `5434`. Local Python processes (`streamlit`, `pytest`, CLI scripts) connect directly to `127.0.0.1:5434` (`dbname=ewaybill_dw`, `user=postgres`, `password=postgres`) using built-in codebase defaults without requiring manual environment variables.
+* **Container-side access (Airflow)**: Airflow scheduler and webserver containers execute within the internal Docker network and communicate directly with PostgreSQL using the internal service name `postgres:5432`.
+
 ### Prerequisites
 * Python 3.12+
 * Docker & Docker Compose
@@ -198,7 +218,7 @@ docker compose up -d
 ### Step 3: Run Full Test Suite
 ```bash
 pytest -v
-# Output: 122 passed in ~16s
+# Output: 125 passed, 0 failed, 1 warning
 ```
 
 ### Step 4: Trigger Clean Airflow Pipeline Run
@@ -208,10 +228,6 @@ docker compose exec airflow-scheduler airflow dags trigger ewaybill_reliability_
 
 ### Step 5: Launch Streamlit Dashboard
 ```bash
-# Configure connection parameters (port 5434 maps to container database on host)
-$env:POSTGRES_PORT="5434"
-$env:POSTGRES_PASSWORD="postgres"
-
 streamlit run dashboard/app.py
 ```
 Open `http://localhost:8501` in your browser.
@@ -265,5 +281,5 @@ ewaybill-data-reliability/
 
 1. **Annual Snapshot Discontinuity**: The comparison between FY 2022–23 and FY 2023–24 is an analysis of two annual static snapshots. It does not represent continuous, streaming data drift monitoring.
 2. **Epistemic Limits of Statistical Significance**: Rejection of the null hypothesis in a Kolmogorov-Smirnov test indicates distributional shape divergence across annual snapshots; it does not constitute proof of data defect, pipeline error, or economic causality.
-3. **`OTHER TERRITORY` Discrepancy**: The numerical divergence in `OTHER TERRITORY` reflects an unstated accounting methodology in the primary DGCI&S source data. It is audited as an advisory condition, not an operational bug.
+3. **`OTHER TERRITORY` Discrepancy**: A numerical divergence is observed in the FY2023–24 cross-table reconciliation. The available source methodology does not provide sufficient information to explain the difference, so the condition is retained as UNRESOLVED and governed as a non-blocking advisory.
 4. **Scope of Corruption Testing**: The 7 controlled corruption scenarios demonstrate the sensitivity of the specific configured validation rules; they do not constitute universal defect detection guarantees.
