@@ -521,7 +521,7 @@ It does not:
 
 > **Screenshot — Dashboard Overview**
 >
-> ![Streamlit Dashboard Overview](docs/screenshots/clean-run.png)
+> ![Streamlit Dashboard Overview](docs/screenshots/failure-run.png)
 ---
 
 ## Local Runtime Architecture
