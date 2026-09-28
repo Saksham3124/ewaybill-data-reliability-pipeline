@@ -4,8 +4,6 @@ An end-to-end data reliability and reconciliation pipeline for the DGCI&S Road E
 
 The project validates published Excel workbooks before analytical use by checking schema integrity, data quality, source totals, cross-table reconciliation, and cross-year statistical changes. A reliability gate determines whether the validated data can be promoted into trusted PostgreSQL tables or whether an incident should be created.
 
-**Repository:** https://github.com/Saksham3124/ewaybill-data-reliability-pipeline
-
 ---
 
 ## Overview
