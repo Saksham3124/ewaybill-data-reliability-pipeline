@@ -1,285 +1,952 @@
 # DGCI&S Road E-Way Bill Data Reliability & Reconciliation Pipeline
 
-An end-to-end, statistically grounded data reliability and cross-table reconciliation engine for the Directorate General of Commercial Intelligence and Statistics (DGCI&S) inter-state and intra-state goods movement datasets (FY 2022–23 and FY 2023–24).
+An end-to-end data reliability and reconciliation pipeline for the DGCI&S Road E-Way Bill statistical datasets for FY 2022–23 and FY 2023–24.
 
-Repository: [https://github.com/Saksham3124/ewaybill-data-reliability-pipeline](https://github.com/Saksham3124/ewaybill-data-reliability-pipeline)
-
----
-
-## 1. Problem Statement & Why Data Reliability Matters
-
-Government and regulatory trade statistics are frequently published as complex, multi-worksheet Excel workbooks designed for human visual inspection rather than automated data pipelines. These workbooks feature:
-* Multi-level headers and merged title cells
-* Formatted summary rows with embedded arithmetic checksums
-* State-level naming variations and spelling shifts across financial years
-* Asymmetric matrix dimensions (e.g., 33 states in outward dispatches vs. 34 jurisdictions in inward/internal tables)
-* Unstated cross-table mathematical dependencies
-
-Traditional ETL pipelines often assume clean, tabular inputs and load unverified data directly into reporting warehouses. When upstream source formatting drifts, data values are corrupted, or trade balances diverge, downstream analytical models and policy decisions are contaminated silently.
-
-This project implements an **active data reliability framework**: every workbook must pass strict structural validation, mathematical cross-table reconciliation, and year-over-year statistical divergence checks before records are permitted to enter trusted analytical storage.
+The project validates published Excel workbooks before analytical use by checking schema integrity, data quality, source totals, cross-table reconciliation, and year-over-year statistical changes. A reliability gate determines whether the validated data can be promoted into trusted PostgreSQL tables or whether an incident should be created.
 
 ---
 
-## 2. Architecture & Pipeline Sequence
+## Overview
 
-```
-                                SOURCE WORKBOOKS
-                     data/Road_EwayBill_2022_23.xlsx (Baseline)
-                     data/Road_EwayBill_2023_24.xlsx (Current)
-                                        │
-                                        ▼
-                     1. INGESTION & RAW STAGING (PostgreSQL)
-                        - Cryptographic SHA-256 verification
-                        - Exact cell preservation into raw_* tables
-                        - Canonical state & chapter normalization
-                                        │
-                                        ▼
-                     2. DATA RELIABILITY EVALUATION ENGINE
-                        ├── Schema Validation (SCH-01..07)
-                        ├── Quality Validation (Completeness, Uniqueness, Domain, Numeric)
-                        ├── Source Total Summation Checks (REC-V01..08)
-                        ├── Cross-Table Reconciliation (REC-DO01..06)
-                        └── Year-over-Year Statistical Analysis (KS Test, PSI, YoY Deltas)
-                                        │
-                                        ▼
-                              3. RELIABILITY GATE
-                                        │
-                   ┌────────────────────┴────────────────────┐
-                   ▼                                         ▼
-            [ALL GATES PASS]                        [BLOCKING FAILURE]
-                   │                                         │
-                   ▼                                         ▼
-      4a. TRUSTED PROMOTION                    4b. INCIDENT MANAGEMENT
-      - Load into 5 trusted tables             - Authoritative PostgreSQL record
-      - Mark run as COMPLETED                  - Generate docs/incidents/ report
-      - Promote 10,089 golden rows             - Attempt SMTP email alert
-                                               - Halt promotion; mark FAILED
-                                        │
-                                        ▼
-                      5. STREAMLIT OPERATIONAL DASHBOARD
-                         - Purely read-only inspection (SELECT only)
-                         - 6 operational monitoring pages
-```
+Government and regulatory datasets are often published as multi-sheet Excel workbooks intended primarily for human consumption. Before such data is used for analysis, it is important to establish that the source is structurally valid, internally consistent, and comparable with the relevant historical snapshot.
 
----
+This project implements that reliability layer.
 
-## 3. Data Source & Five Published Views
+Instead of loading the published workbook directly into trusted analytical storage, the pipeline evaluates it through multiple validation stages:
 
-Data is published by the **Directorate General of Commercial Intelligence and Statistics (DGCI&S)**, Ministry of Commerce and Industry, Government of India:
-
-| Published View | Sheet Name | Dimensions | Description |
-| :--- | :--- | :---: | :--- |
-| **Table I** | `Tab I_Stat_to_Stat_Revised_Road` | 33 × 33 | State-to-State inter-state road movement matrix (1,089 pairs). |
-| **Table II** | `Tab II_Chap_Revised_Road` | 90 × 4 | 2-digit HS Chapter summary (Chapters 10–99). |
-| **Table III** | `Tab III_Outward_Revised_Road` | 90 × 33 | Chapter × State outward dispatches (2,970 state-chapter combinations). |
-| **Table IV** | `Tab IV_Inward_Revised_Road` | 90 × 34 | Chapter × State inward arrivals (3,060 combinations; includes `OTHER TERRITORY`). |
-| **Table V** | `Tab V_Internal_Revised_Road` | 90 × 34 | Chapter × State intra-state movements (3,060 combinations; includes `OTHER TERRITORY`). |
-
----
-
-## 4. Reliability Layers & Methodology
-
-### 4.1 Validation Layer
-Evaluates deterministic structural and data-integrity rules:
-* **Schema Conformance (SCH-01..07)**: Header labels, column counts, data boundaries, and sheet presence.
-* **Completeness & Uniqueness**: Verification of exact expected row counts and composite key uniqueness `(chapter_code, state)`.
-* **Domain Validation**: Verification of ISO state names and 2-digit HS chapter codes (10–99).
-* **Numeric Boundaries**: Non-negativity, float precision preservation, and explicit NULL preservation.
-* **Source Reported Totals (REC-V01..08)**: Verification of matrix row/column cell sums against published Row 93 and Table II published totals.
-
-### 4.2 Cross-Table Reconciliation Layer
-Audits 6 mathematical relationships observed across independent worksheets:
-* **REC-DO01**: National outward total (Table III) equals national inward total (Table IV).
-* **REC-DO02**: State-to-State grand total (Table I) equals national outward total (Table III).
-* **REC-DO03**: National trade balance partitioning (Outward + Internal = Inward + Internal).
-* **REC-DO04**: State column marginal sums in Table I match state outward column sums in Table III.
-* **REC-DO05**: State row marginal sums in Table I match state inward column sums in Table IV.
-* **REC-DO06**: State-level trade balance across all 33 states and union territories.
-  * **Advisory Status**: 32 of 33 jurisdictions pass within numerical tolerance. A numerical divergence is observed in the FY2023–24 cross-table reconciliation for `OTHER TERRITORY`. The available source methodology does not provide sufficient information to explain the difference, so the condition is retained as UNRESOLVED and governed as a non-blocking advisory.
-
-### 4.3 Year-over-Year Statistical Analysis
-Compares annual snapshots between **FY 2022–23** (reference baseline) and **FY 2023–24** (current comparison snapshot):
-* **Kolmogorov-Smirnov (KS) Two-Sample Test**: Evaluates whether annual distributions share the same continuous shape ($\alpha = 0.05$).
-* **Population Stability Index (PSI)**: Quantifies bucketed shift magnitude across annual snapshots using project-configured interpretation thresholds ($< 0.10$ indicating low shift, $0.10–0.25$ moderate shift, $\ge 0.25$ significant shift). PSI serves as a descriptive distribution-shift signal between annual snapshots, not as universal evidence of data-quality failure.
-* **Year-over-Year Change Deltas**: State and chapter-level growth percentages with zero-denominator safeguards.
-* **Epistemic Boundary**: `STATISTICALLY_DIFFERENT` is treated as an informational signal reflecting annual magnitude differences, **not** as a pipeline failure or proof of data corruption.
-
-### 4.4 Reliability Gate & Promotion Semantics
-The `reliability_decision` branch enforces strict gate semantics:
-* **Blocking Failures**: Any failure in schema conformance, completeness, uniqueness, domain format, numeric integrity, or source-total verification immediately triggers `reliability_decision = FAIL`. Promotion is halted, and an incident is raised.
-* **Advisory Signals**: Cross-table `UNRESOLVED` conditions (e.g., `OTHER TERRITORY`) and statistical divergence (`STATISTICALLY_DIFFERENT`) are non-blocking.
-* **Trusted Promotion**: Only clean runs reaching `reliability_decision = PASS` promote staging records into the 5 trusted warehouse tables (`trusted_*`).
-
----
-
-## 5. Verified End-to-End Results
-
-The following figures represent measured, empirical results from the verified end-to-end Airflow execution runs (documented in `docs/end_to_end_verification.md`), not theoretical claims:
-
-| Metric / Evaluation Area | Clean Run Result (Phase 11A) | Corrupted Run Result (Phase 11B) |
-| :--- | :---: | :---: |
-| **Airflow DAG Tasks Scheduled** | 10 tasks executed | 10 tasks evaluated |
-| **Airflow Run State** | `success` | `failed` (halted at gate) |
-| **Validation Evaluations** | **52 / 52 PASS** | **52 / 52 PASS** |
-| **Reconciliation Evaluations** | **99 PASS, 4 advisory/unresolved, 0 FAIL** | 1 detected failure (`REC-V02`) |
-| **Statistical Test Results** | **204 comparisons evaluated** | 204 comparisons evaluated |
-| **Reliability Gate Decision** | **`PASS`** | **`FAIL`** |
-| **Promotion to Trusted Warehouse** | **10,089 rows promoted** | **0 rows promoted (BLOCKED)** |
-| **Incident Created in PostgreSQL** | **0 incidents** | **1 incident created (`CRITICAL`)** |
-| **Clean Warehouse Lineage Preserved** | Verified | Verified (10,089 clean rows untainted) |
-| **Full Pytest Test Suite** | **125 passed, 0 failed, 1 warning** | **125 passed, 0 failed, 1 warning** |
-| **Official Source SHA-256 Hashes** | Unchanged | Unchanged (Byte-for-byte identical) |
-
----
-
-## 6. Controlled Corruption Testing
-
-The pipeline's detection capabilities were validated across 7 controlled synthetic corruption scenarios on isolated copies:
-
-| Scenario Code | Corruption Injected | Detection Layer | Resulting Gate Action |
-| :--- | :--- | :--- | :---: |
-| **`CORRUPT-A`** | Missing single record `(Chapter 10, Maharashtra)` | Completeness (`CMP-03`) | **BLOCKED** |
-| **`CORRUPT-B`** | Duplicate record appended | Uniqueness (`UNQ-03`) | **BLOCKED** |
-| **`CORRUPT-C`** | Invalid chapter code `'999'` injected | Domain (`DOM-03`) | **BLOCKED** |
-| **`CORRUPT-D`** | $+500.0$ Cr added to Maharashtra Chapter 10 | Source-Total (`REC-V02`) | **BLOCKED** |
-| **`CORRUPT-E`** | State column `BIHAR` removed from Table III | Completeness & Reconciliation | **BLOCKED** |
-| **`CORRUPT-F`** | Numeric float replaced with string text | Numeric (`NUM-01`) | **BLOCKED** |
-| **`CORRUPT-G`** | Synthetic $100\times$ volume distribution multiplier | Statistical (KS Test & PSI) | **ADVISORY** (Non-blocking) |
-
-*Controlled corruptions evaluate specific single-point defect detection; they do not imply universal detection of all possible corrupted inputs.*
-
----
-
-## 7. Streamlit Operational Dashboard
-
-The platform includes a read-only Streamlit dashboard (`dashboard/app.py`) for operational inspection:
-* **📊 Overview**: High-level execution status, core KPIs, quality ratios, and recent run history.
-* **🔍 Data Quality**: Interactive filtering across all validation checks by run, table, category, and severity.
-* **⚖️ Reconciliation**: Matrix of cross-table mathematical audits with clear explanation of `OTHER TERRITORY`.
-* **📈 Year-over-Year Statistics**: Distributional comparisons (KS test, PSI, YoY changes) with epistemic guidance.
-* **🚨 Incidents**: Authoritative incident registry with full JSON diagnostic payloads.
-* **⏱️ Pipeline Runs**: Chronological run history and raw vs. trusted row count lineage.
-
-*Read-Only Guarantee: All dashboard queries execute with `readonly=True` connection sessions; the UI cannot mutate database state, alter incidents, or trigger DAG runs.*
-
----
-
-## 8. Quickstart & Reproducibility Guide
-
-### 8.1 Local Runtime Architecture
-
-The environment uses a single, shared PostgreSQL instance running inside Docker Compose:
-
-```
-Local Windows:
-Streamlit / pytest / CLI
+```text
+DGCI&S E-Way Bill Workbooks
+            │
+            ▼
+      Data Ingestion
+            │
+            ▼
+ Schema & Quality Validation
+            │
+            ▼
+  Cross-Table Reconciliation
+            │
+            ▼
+     Year-over-Year Statistics
+            │
+            ▼
+       Reliability Gate
+          /        \
+       PASS        FAIL
+        │             │
+        ▼             ▼
+ Trusted Data      Incident
         │
-        │ 127.0.0.1:5434
         ▼
- Docker PostgreSQL
-        ▲
-        │ postgres:5432
+    PostgreSQL
         │
-Airflow containers
+        ▼
+ Streamlit Dashboard
 ```
 
-* **Host-side access (Windows)**: Docker publishes PostgreSQL container port `5432` to host port `5434`. Local Python processes (`streamlit`, `pytest`, CLI scripts) connect directly to `127.0.0.1:5434` (`dbname=ewaybill_dw`, `user=postgres`, `password=postgres`) using built-in codebase defaults without requiring manual environment variables.
-* **Container-side access (Airflow)**: Airflow scheduler and webserver containers execute within the internal Docker network and communicate directly with PostgreSQL using the internal service name `postgres:5432`.
+The project focuses on **data reliability and analytical trust**, rather than real-time processing, individual E-Way Bill transaction processing, or fraud detection.
+
+---
+
+## Architecture
+
+```text
+                         SOURCE WORKBOOKS
+                    FY 2022–23 / FY 2023–24
+                              │
+                              ▼
+                   ┌───────────────────────┐
+                   │ Python / Pandas       │
+                   │ Data Ingestion        │
+                   │ Source Hashing        │
+                   └───────────┬───────────┘
+                              │
+                              ▼
+                   ┌───────────────────────┐
+                   │ PostgreSQL            │
+                   │ Raw / Staging Data   │
+                   └───────────┬───────────┘
+                              │
+                              ▼
+              ┌─────────────────────────────────┐
+              │ Reliability Evaluation          │
+              │                                 │
+              │ • Schema Validation             │
+              │ • Data Quality Checks            │
+              │ • Source-Total Validation        │
+              │ • Cross-Table Reconciliation     │
+              │ • KS / PSI / YoY Analysis        │
+              └───────────────┬─────────────────┘
+                              │
+                              ▼
+                       ┌─────────────────┐
+                       │ Reliability     │
+                       │ Gate             │
+                       └───────┬─────────┘
+                          PASS │ FAIL
+                       ┌────────┘ └─────────┐
+                       ▼                    ▼
+                Trusted Promotion      Incident Management
+                       │                    │
+                       ▼                    ▼
+                Trusted PostgreSQL      Incident Record
+                       │
+                       ▼
+                Read-Only Streamlit
+                    Dashboard
+```
+
+### Airflow orchestration
+
+The batch pipeline is orchestrated using Apache Airflow.
+
+```text
+start
+  │
+  ▼
+ingest_source
+  │
+  ▼
+profile_raw_data
+  │
+  ▼
+schema_validation
+  │
+  ▼
+quality_validation
+  │
+  ▼
+reconciliation_checks
+  │
+  ▼
+statistical_analysis
+  │
+  ▼
+reliability_decision
+      │
+      ├──────────────► promote_trusted_data
+      │
+      └──────────────► create_incident
+```
+
+The Airflow DAG handles orchestration and task dependencies while the core validation, reconciliation, statistical, and incident logic remains in `src/`.
+
+> **Screenshot — Airflow DAG:** Add a screenshot of the Airflow DAG graph here.
+
+---
+
+## Data Source
+
+The source data consists of DGCI&S Road E-Way Bill published statistics for FY 2022–23 and FY 2023–24.
+
+The pipeline works with five published views:
+
+| View | Source Sheet | Structure | Purpose |
+|---|---|---|---|
+| Table I | `Tab I_Stat_to_Stat_Revised_Road` | 33 × 33 | State-to-state movement matrix |
+| Table II | `Tab II_Chap_Revised_Road` | 90 × 4 | National chapter summary |
+| Table III | `Tab III_Outward_Revised_Road` | 90 × 33 | Chapter × state outward movement |
+| Table IV | `Tab IV_Inward_Revised_Road` | 90 × 34 | Chapter × state inward movement |
+| Table V | `Tab V_Internal_Revised_Road` | 90 × 34 | Chapter × state internal movement |
+
+The raw source structure and labels are preserved. Controlled mappings are applied only where required for historical comparison.
+
+### Historical comparability
+
+The FY2022–23 and FY2023–24 workbooks share the same core analytical structures, but several source-label differences require controlled adaptations:
+
+- `CHHATTISGARH` → `CHATTISGARH`
+- `JAMMU AND KASHMIR` → `JAMMU & KASHMIR`
+- `Other Territory` → `OTHER TERRITORY`
+
+The chapter descriptions are character-for-character identical across the two annual snapshots.
+
+Table III also has a structural difference: FY2022–23 contains a published `TOTAL` column that is omitted in FY2023–24. Comparable totals are therefore recalculated from the state columns rather than directly comparing the two source layouts.
+
+---
+
+## Reliability Framework
+
+### 1. Schema Validation
+
+The pipeline verifies the expected workbook structure before analytical processing.
+
+Checks include:
+
+- Required worksheets
+- Expected columns
+- Header structure
+- Expected dimensions
+- Required fields
+- Data types
+- Source layout consistency
+
+---
+
+### 2. Data Quality Validation
+
+The quality layer checks for deterministic integrity issues such as:
+
+- Missing expected records
+- Duplicate logical records
+- Invalid state or jurisdiction names
+- Invalid chapter codes
+- Negative or invalid numeric values
+- Unexpected data types
+- Missing values
+- Structural inconsistencies
+- Source-reported total mismatches
+
+The validation framework records individual check results and associates failures with their corresponding check IDs.
+
+---
+
+### 3. Cross-Table Reconciliation
+
+Cross-table reconciliation is a core part of the project.
+
+The pipeline does not treat each published table as an isolated dataset. Instead, it evaluates relationships between the different published views.
+
+Key reconciliation checks include:
+
+| Check | Description |
+|---|---|
+| `REC-DO01` | Table I matrix total vs. Table II national total |
+| `REC-DO02` | Table III outward total vs. Table IV inward total |
+| `REC-DO03` | Table II relationships with outward, inward, and internal movement |
+| `REC-DO04` | State-level column marginals |
+| `REC-DO05` | State-level row marginals |
+| `REC-DO06` | State-level diagonal/internal movement reconciliation |
+
+Every reconciliation result records the expected value, observed value, difference, tolerance, and status.
+
+### `OTHER TERRITORY`
+
+The FY2023–24 `OTHER TERRITORY` reconciliation remains unresolved.
+
+The source methodology does not provide sufficient information to explain the observed difference. Therefore, the pipeline records the condition as `UNRESOLVED` rather than inventing a cause or forcing it into a pass/fail interpretation.
+
+Under the current governance rules, this is a **non-blocking advisory**.
+
+---
+
+## Year-over-Year Statistical Analysis
+
+FY2022–23 is used as the historical reference snapshot and FY2023–24 as the comparison snapshot.
+
+The statistical layer includes:
+
+- Two-sample Kolmogorov-Smirnov (KS) tests
+- Population Stability Index (PSI)
+- State-level year-over-year changes
+- Chapter-level year-over-year changes
+- Zero-denominator safeguards
+
+### Statistical interpretation
+
+Statistical change is treated as a monitoring signal rather than evidence of corruption or a data-quality failure.
+
+PSI uses project-configured interpretation thresholds and is treated as a descriptive distribution-shift measure between annual snapshots rather than a universal data-quality standard.
+
+The state × chapter KS analysis also accounts for the structured and dependent nature of the underlying matrix. Its statistical results are therefore interpreted as descriptive signals rather than independent-population inference.
+
+### Aggregate annual changes
+
+| Measure | FY2022–23 | FY2023–24 | YoY Change |
+|---|---:|---:|---:|
+| Outward | ₹62,999,856.01 Cr | ₹10,429,324.40 Cr | -83.45% |
+| Inward | ₹62,999,856.01 Cr | ₹10,429,324.40 Cr | -83.45% |
+| Internal | ₹31,353,408.74 Cr | ₹9,890,462.58 Cr | -68.45% |
+| National Total | ₹94,353,264.75 Cr | ₹20,319,786.98 Cr | -78.46% |
+
+These are annual snapshot differences. The pipeline does not attribute them to a specific economic or causal explanation.
+
+---
+
+## Reliability Gate
+
+The reliability gate separates **blocking integrity failures** from **advisory signals**.
+
+### Blocking failures
+
+Examples include:
+
+- Schema failures
+- Missing expected records
+- Duplicate logical records
+- Invalid domain values
+- Numeric integrity failures
+- Source-total mismatches
+- Blocking reconciliation failures
+
+When a blocking failure occurs:
+
+```text
+Reliability Gate = FAIL
+        │
+        ├── Trusted promotion blocked
+        │
+        └── Incident workflow triggered
+```
+
+### Advisory conditions
+
+Examples include:
+
+- Unresolved `OTHER TERRITORY` reconciliation
+- Statistical distribution changes
+
+These conditions are retained in the audit trail but do not automatically block trusted promotion.
+
+A clean execution follows:
+
+```text
+Reliability Gate = PASS
+        │
+        ▼
+Promote validated data
+        │
+        ▼
+trusted_* PostgreSQL tables
+```
+
+---
+
+## Verified End-to-End Results
+
+The pipeline was verified using genuine Airflow executions against the local PostgreSQL warehouse.
+
+### Clean run
+
+The clean run completed successfully with:
+
+- Airflow run: `manual__2026-09-27T19:06:19+00:00`
+- Reliability gate: `PASS`
+- Validation evaluations: 52
+- Reconciliation records: 103
+- Statistical results: 204
+- Trusted rows promoted: **10,089**
+- Incidents created: **0**
+- Official source hash verified
+
+### Controlled failure run
+
+A separate execution used an isolated corrupted copy of the FY2023–24 workbook.
+
+The run:
+
+- Detected a ₹500 Cr controlled alteration
+- Failed `REC-V02`
+- Classified the failure as blocking
+- Set the reliability gate to `FAIL`
+- Prevented trusted-data promotion
+- Created one CRITICAL incident
+- Preserved the clean run and official source data
+
+### End-to-end summary
+
+| Metric | Clean Run | Controlled Failure Run |
+|---|---:|---:|
+| Run state | `success` | `failed` |
+| Validation evaluations | 52 | 52 |
+| Reconciliation | 99 PASS, 4 advisory/unresolved, 0 FAIL | 99 PASS, 4 advisory/unresolved, 1 FAIL |
+| Statistical results | 204 | 204 |
+| Reliability gate | `PASS` | `FAIL` |
+| Trusted rows promoted | **10,089** | **0** |
+| Incidents | 0 | **1 CRITICAL** |
+| Corrupted data promoted | No | **No** |
+
+> **Screenshot — Clean Run:** Add Airflow/Streamlit screenshot showing the successful run and trusted-data promotion here.
+
+> **Screenshot — Failure Run:** Add Airflow/Streamlit screenshot showing the failed reliability gate here.
+
+---
+
+## Controlled Corruption Testing
+
+The project includes isolated corruption simulations to verify that configured validation rules respond to specific defects.
+
+Seven scenarios were tested:
+
+| Scenario | Injected Defect | Detection | Result |
+|---|---|---|---|
+| `CORRUPT-A` | Missing state/chapter record | Completeness | BLOCKED |
+| `CORRUPT-B` | Duplicate logical record | Uniqueness | BLOCKED |
+| `CORRUPT-C` | Invalid chapter code | Domain validation | BLOCKED |
+| `CORRUPT-D` | +₹500 Cr movement alteration | Source-total validation | BLOCKED |
+| `CORRUPT-E` | Missing Bihar column | Completeness + reconciliation | BLOCKED |
+| `CORRUPT-F` | Numeric value replaced with text | Numeric validation | BLOCKED |
+| `CORRUPT-G` | Controlled distribution shift | KS + PSI | ADVISORY |
+
+All corruption tests operate on isolated copies or in-memory data.
+
+The official source workbook remains unchanged.
+
+These tests demonstrate the sensitivity of the configured rules to the tested scenarios. They do not constitute a guarantee of universal corruption detection.
+
+---
+
+## Incident Management
+
+When a blocking reliability failure occurs, the pipeline creates an incident record.
+
+An incident contains information such as:
+
+- Incident ID
+- Pipeline run ID
+- Severity
+- Failure type
+- Source table
+- Check ID
+- Check name
+- Expected value
+- Observed value
+- Difference
+- Affected record count
+- Failure description
+- Triggering failures
+- Timestamps
+- Alert status
+
+### Incident severity
+
+```text
+CRITICAL
+   │
+ ERROR
+   │
+WARNING
+```
+
+Only blocking `CRITICAL` or `ERROR` failures trigger the incident workflow.
+
+Email notification is optional and configured through environment variables. The database incident record remains authoritative if notification is disabled or unavailable.
+
+> **Screenshot — Incident:** Add the CRITICAL incident detail screenshot here.
+
+---
+
+## Streamlit Dashboard
+
+The project includes a read-only Streamlit dashboard connected to PostgreSQL.
+
+### Dashboard pages
+
+#### Overview
+
+Shows:
+
+- Latest pipeline run
+- Run status
+- Validation results
+- Reconciliation status
+- Statistical signals
+- Open incidents
+- Trusted-data counts
+
+#### Data Quality
+
+Provides filtered views of:
+
+- Validation checks
+- Check IDs
+- Expected values
+- Observed values
+- Statuses
+
+#### Reconciliation
+
+Shows:
+
+- Reconciliation checks
+- Differences
+- Tolerances
+- PASS / FAIL / UNRESOLVED results
+- Source-table context
+
+#### Year-over-Year Statistics
+
+Displays:
+
+- KS results
+- PSI results
+- YoY changes
+- Statistical interpretation notes
+
+#### Incidents
+
+Provides:
+
+- Incident history
+- Severity
+- Status
+- Failure type
+- Triggering check
+- Failure details
+
+#### Pipeline Runs
+
+Shows:
+
+- Run IDs
+- Execution status
+- Start/end timestamps
+- Duration
+- Source workbook
+- Validation counts
+- Reconciliation counts
+- Statistical counts
+- Trusted row counts
+
+### Dashboard safety
+
+The dashboard is intentionally read-only.
+
+It does not:
+
+- Modify incidents
+- Resolve incidents
+- Trigger Airflow runs
+- Insert warehouse data
+- Update warehouse data
+- Delete warehouse data
+- Alter database schema
+
+> **Screenshot — Dashboard Overview:** Add the clean/failure Streamlit Overview screenshot here.
+
+---
+
+## Local Runtime Architecture
+
+Docker Compose provides the local Airflow and PostgreSQL environment.
+
+```text
+Local Windows Machine
+┌─────────────────────────────────────┐
+│                                     │
+│  Streamlit     pytest     scripts   │
+│      │            │          │      │
+│      └────────────┼──────────┘      │
+│                   │                 │
+│             127.0.0.1:5434         │
+│                   │                 │
+└───────────────────┼─────────────────┘
+                    ▼
+           ┌─────────────────────┐
+           │ Docker PostgreSQL   │
+           │                     │
+           │ Internal: 5432      │
+           │ Host:     5434      │
+           └──────────▲──────────┘
+                      │
+                      │ postgres:5432
+                      │
+           ┌──────────┴──────────┐
+           │ Docker Airflow      │
+           │                     │
+           │ Scheduler           │
+           │ Webserver           │
+           └─────────────────────┘
+```
+
+The host machine connects to PostgreSQL through port `5434`.
+
+Airflow containers connect internally through the Docker service name:
+
+```text
+postgres:5432
+```
+
+---
+
+## Quickstart
 
 ### Prerequisites
-* Python 3.12+
-* Docker & Docker Compose
-* Git
 
-### Step 1: Clone Repository & Setup Virtual Environment
+Install:
+
+- Python 3.12+
+- Docker Desktop
+- Git
+
+Docker Desktop must be running before starting the Airflow environment.
+
+### 1. Clone the repository
+
 ```bash
 git clone https://github.com/Saksham3124/ewaybill-data-reliability-pipeline.git
 cd ewaybill-data-reliability-pipeline
+```
 
+### 2. Create a Python environment
+
+#### Windows PowerShell
+
+```powershell
 python -m venv .venv
-# Windows PowerShell:
 .\.venv\Scripts\Activate.ps1
-# Linux / macOS:
-source .venv/bin/activate
-
 pip install -r requirements.txt
 ```
 
-### Step 2: Start PostgreSQL & Airflow via Docker Compose
-```bash
-# Build custom Airflow image with pinned compatible dependencies
-docker compose build --no-cache
+#### Linux / macOS
 
-# Start PostgreSQL and Airflow services in detached mode
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### 3. Build the Airflow image
+
+```bash
+docker compose build --no-cache
+```
+
+The Airflow image installs the pinned runtime dependencies defined in:
+
+```text
+requirements-airflow.txt
+```
+
+### 4. Start the Docker environment
+
+```bash
 docker compose up -d
 ```
 
-### Step 3: Run Full Test Suite
+Check the services:
+
 ```bash
-pytest -v
-# Output: 125 passed, 0 failed, 1 warning
+docker compose ps
 ```
 
-### Step 4: Trigger Clean Airflow Pipeline Run
+### 5. Open Airflow
+
+Open:
+
+```text
+http://localhost:8080
+```
+
+The DAG is:
+
+```text
+ewaybill_reliability_pipeline
+```
+
+Trigger it from the Airflow UI or with:
+
 ```bash
 docker compose exec airflow-scheduler airflow dags trigger ewaybill_reliability_pipeline
 ```
 
-### Step 5: Launch Streamlit Dashboard
+### 6. Run the test suite
+
+```bash
+pytest -v
+```
+
+The verified repository state contains:
+
+```text
+125 passed, 0 failed, 1 warning
+```
+
+### 7. Start Streamlit
+
 ```bash
 streamlit run dashboard/app.py
 ```
-Open `http://localhost:8501` in your browser.
+
+Open:
+
+```text
+http://localhost:8501
+```
 
 ---
 
-## 9. Project Structure
+## Run It Yourself
 
+A typical local execution looks like:
+
+```text
+1. Start Docker
+       │
+       ▼
+2. Start PostgreSQL + Airflow
+       │
+       ▼
+3. Trigger Airflow DAG
+       │
+       ▼
+4. Watch task execution
+       │
+       ▼
+5. Reliability Gate
+       │
+       ├── PASS → trusted data
+       │
+       └── FAIL → incident
+       │
+       ▼
+6. Open Streamlit
+       │
+       ▼
+7. Inspect pipeline results
 ```
+
+### Useful Docker commands
+
+Check running services:
+
+```bash
+docker compose ps
+```
+
+View scheduler logs:
+
+```bash
+docker compose logs -f airflow-scheduler
+```
+
+View webserver logs:
+
+```bash
+docker compose logs -f airflow-webserver
+```
+
+Stop the environment:
+
+```bash
+docker compose down
+```
+
+Stop and remove the local database volume as well:
+
+```bash
+docker compose down -v
+```
+
+> `docker compose down -v` removes the Docker PostgreSQL volume and therefore removes the locally persisted warehouse data.
+
+---
+
+## Project Structure
+
+```text
 ewaybill-data-reliability/
+│
 ├── dags/
-│   └── ewaybill_reliability_pipeline.py  # Airflow DAG definition (10 tasks)
+│   └── ewaybill_reliability_pipeline.py
+│
 ├── dashboard/
-│   ├── app.py                            # Streamlit dashboard application (6 pages)
-│   └── data_access.py                    # Read-only parameterized database queries
+│   ├── app.py
+│   └── data_access.py
+│
 ├── data/
-│   ├── Road_EwayBill_2022_23.xlsx        # Baseline financial year workbook
-│   └── Road_EwayBill_2023_24.xlsx        # Current financial year workbook
+│   ├── Road_EwayBill_2022_23.xlsx
+│   └── Road_EwayBill_2023_24.xlsx
+│
 ├── docs/
-│   ├── end_to_end_verification.md        # Comprehensive Phases 11A and 11B verification logs
-│   ├── final_verification_summary.md     # Architectural audit & limitation summary
-│   ├── corruption_detection_report.md    # Controlled corruption evaluation report
-│   ├── corruption_test_spec.md           # Controlled corruption test specifications
-│   ├── incident_management.md            # Incident lifecycle & alerting design
-│   ├── reconciliation_report.md          # Cross-table reconciliation findings
-│   ├── statistical_analysis_report.md    # Year-over-year statistical report
-│   └── validation_report.md              # Rule-by-rule data validation catalogue
+│   ├── end_to_end_verification.md
+│   ├── final_verification_summary.md
+│   ├── corruption_detection_report.md
+│   ├── corruption_test_spec.md
+│   ├── incident_management.md
+│   ├── reconciliation_report.md
+│   ├── statistical_analysis_report.md
+│   └── validation_report.md
+│
 ├── sql/
-│   ├── schema.sql                        # PostgreSQL warehouse DDL (raw, control, results, trusted)
-│   └── init_multiple_dbs.sh              # Multi-database container initialization
+│   ├── schema.sql
+│   └── init_multiple_dbs.sh
+│
 ├── src/
-│   ├── corruption/                       # Controlled corruption scenario generators
-│   ├── database/                         # Connection manager & data repository
-│   ├── incidents/                        # Authoritative incident creation & file logging
-│   ├── ingestion/                        # Openpyxl workbook loaders & hash checkers
-│   ├── notifications/                    # Email alerting service
-│   ├── reconciliation/                   # Cross-table mathematical engine
-│   ├── statistics/                       # KS-test, PSI, and YoY comparison engine
-│   ├── transformation/                   # Canonical jurisdiction & chapter normalizers
-│   └── validation/                       # Schema and data quality validation engine
-├── tests/                                # 13 test modules covering all pipeline components
-├── Dockerfile                            # Reproducible Airflow container build
-├── docker-compose.yaml                   # Airflow, PostgreSQL 17, and volume setup
-├── requirements.txt                      # Python environment dependencies
-└── requirements-airflow.txt              # Pinned binary-compatible container dependencies
+│   ├── corruption/
+│   ├── database/
+│   ├── incidents/
+│   ├── ingestion/
+│   ├── notifications/
+│   ├── reconciliation/
+│   ├── statistics/
+│   ├── transformation/
+│   └── validation/
+│
+├── tests/
+│
+├── Dockerfile
+├── docker-compose.yaml
+├── pytest.ini
+├── requirements.txt
+└── requirements-airflow.txt
 ```
 
 ---
 
-## 10. Analytical Disclaimers & Known Limitations
+## Technology Stack
 
-1. **Annual Snapshot Discontinuity**: The comparison between FY 2022–23 and FY 2023–24 is an analysis of two annual static snapshots. It does not represent continuous, streaming data drift monitoring.
-2. **Epistemic Limits of Statistical Significance**: Rejection of the null hypothesis in a Kolmogorov-Smirnov test indicates distributional shape divergence across annual snapshots; it does not constitute proof of data defect, pipeline error, or economic causality.
-3. **`OTHER TERRITORY` Discrepancy**: A numerical divergence is observed in the FY2023–24 cross-table reconciliation. The available source methodology does not provide sufficient information to explain the difference, so the condition is retained as UNRESOLVED and governed as a non-blocking advisory.
-4. **Scope of Corruption Testing**: The 7 controlled corruption scenarios demonstrate the sensitivity of the specific configured validation rules; they do not constitute universal defect detection guarantees.
+| Layer | Technology |
+|---|---|
+| Programming | Python |
+| Data processing | Pandas, NumPy |
+| Statistical analysis | SciPy |
+| Excel ingestion | openpyxl |
+| Database | PostgreSQL |
+| Orchestration | Apache Airflow |
+| Containerization | Docker, Docker Compose |
+| Dashboard | Streamlit |
+| Testing | pytest |
+| Version control | Git / GitHub |
+
+---
+
+## Database Design
+
+The PostgreSQL warehouse separates source, validation, reconciliation, statistical, incident, and trusted-data layers.
+
+Important tables include:
+
+```text
+Raw / Source
+├── raw_*
+
+Validation
+├── validation_results
+
+Reconciliation
+├── reconciliation_results
+
+Statistics
+├── statistical_results
+
+Pipeline Monitoring
+├── pipeline_runs
+
+Incident Management
+├── incidents
+
+Trusted Data
+├── trusted_state_movement
+├── trusted_chapter_movement
+├── trusted_state_chapter_outward
+├── trusted_state_chapter_inward
+└── trusted_state_chapter_internal
+```
+
+The trusted tables are populated only after the reliability gate permits promotion.
+
+---
+
+## Testing
+
+The repository contains automated tests covering:
+
+- Historical source profiling
+- Ingestion
+- Normalization
+- Validation engine
+- Validation rules
+- Reconciliation engine
+- Statistical analysis
+- Corruption simulation
+- Airflow DAG behavior
+- Incident management
+- Notifications
+- Dashboard behavior
+- Database configuration
+
+Verified test state:
+
+```text
+125 passed
+0 failed
+1 warning
+```
+
+The warning is an Airflow operating-system compatibility notice observed during local Windows testing.
+
+---
+
+## Source Integrity
+
+The official source workbooks are verified using SHA-256 hashes.
+
+### FY2022–23
+
+```text
+534AE64CDFE76AE1ADBE5DB789443CD5AF5FC34DF94925BEBA1949859D209AEF
+```
+
+### FY2023–24
+
+```text
+42FDBBA9A6FCF40FB47F9A632D403B28680E610160DB51CF75511163F59CE803D
+```
+
+These hashes provide a reproducible reference for the source files used in the verified runs.
+
+---
+
+## Known Limitations
+
+### 1. Annual snapshots
+
+The project compares annual published snapshots. It is not a continuous or real-time data-drift monitoring system.
+
+### 2. Statistical interpretation
+
+KS and PSI identify distributional differences between annual snapshots. They do not prove data corruption, identify a root cause, or establish economic causality.
+
+### 3. `OTHER TERRITORY`
+
+A FY2023–24 reconciliation discrepancy remains unresolved because the available source methodology does not provide enough information to explain it.
+
+The pipeline therefore records it as `UNRESOLVED` and treats it as a non-blocking advisory.
+
+### 4. Controlled corruption scope
+
+The corruption tests demonstrate detection of the specific configured scenarios. They are not evidence that every possible data defect will be detected.
+
+### 5. Source methodology
+
+The pipeline validates the published data according to the relationships and assumptions that can be established from the available source material. It does not independently establish the methodology used to produce the original government statistics.
+
+---
+
+## Verification Documentation
+
+Detailed verification reports are available in the `docs/` directory.
+
+Key documents include:
+
+- `final_verification_summary.md`
+- `end_to_end_verification.md`
+- `validation_report.md`
+- `reconciliation_report.md`
+- `statistical_analysis_report.md`
+- `corruption_test_spec.md`
+- `corruption_detection_report.md`
+- `incident_management.md`
+
+These documents contain the detailed test evidence, run identifiers, validation results, reconciliation outcomes, corruption scenarios, and incident verification.
+
+---
+
+## Author
+
+**Kumar Saksham**
+
+B.Tech, Electronics & Communication Engineering  
+Birla Institute of Technology, Mesra
+
+- GitHub: https://github.com/Saksham3124
+- LinkedIn: https://www.linkedin.com/in/kumarsaksham/
+
+---
+
+## License
+
+This repository is intended as a portfolio and technical demonstration project.
+
+The source datasets remain subject to their original publication and usage terms.
