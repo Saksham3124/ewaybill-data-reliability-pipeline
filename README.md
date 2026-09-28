@@ -2,13 +2,15 @@
 
 An end-to-end data reliability and reconciliation pipeline for the DGCI&S Road E-Way Bill statistical datasets for FY 2022–23 and FY 2023–24.
 
-The project validates published Excel workbooks before analytical use by checking schema integrity, data quality, source totals, cross-table reconciliation, and year-over-year statistical changes. A reliability gate determines whether the validated data can be promoted into trusted PostgreSQL tables or whether an incident should be created.
+The project validates published Excel workbooks before analytical use by checking schema integrity, data quality, source totals, cross-table reconciliation, and cross-year statistical changes. A reliability gate determines whether the validated data can be promoted into trusted PostgreSQL tables or whether an incident should be created.
+
+**Repository:** https://github.com/Saksham3124/ewaybill-data-reliability-pipeline
 
 ---
 
 ## Overview
 
-Government and regulatory datasets are often published as multi-sheet Excel workbooks intended primarily for human consumption. Before such data is used for analysis, it is important to establish that the source is structurally valid, internally consistent, and comparable with the relevant historical snapshot.
+Government and regulatory datasets are often published as multi-sheet Excel workbooks intended primarily for human consumption. Before such data is used for analysis, it is important to establish that the source is structurally valid, internally consistent, and suitable for comparison with the relevant historical snapshot.
 
 This project implements that reliability layer.
 
@@ -24,24 +26,24 @@ DGCI&S E-Way Bill Workbooks
  Schema & Quality Validation
             │
             ▼
-  Cross-Table Reconciliation
+ Cross-Table Reconciliation
             │
             ▼
-     Year-over-Year Statistics
+ Cross-Year Statistics
             │
             ▼
        Reliability Gate
           /        \
-       PASS        FAIL
+       PASS         FAIL
         │             │
         ▼             ▼
- Trusted Data      Incident
+Trusted Data       Incident
         │
         ▼
-    PostgreSQL
+   PostgreSQL
         │
         ▼
- Streamlit Dashboard
+Streamlit Dashboard
 ```
 
 The project focuses on **data reliability and analytical trust**, rather than real-time processing, individual E-Way Bill transaction processing, or fraud detection.
@@ -55,45 +57,45 @@ The project focuses on **data reliability and analytical trust**, rather than re
                     FY 2022–23 / FY 2023–24
                               │
                               ▼
-                   ┌───────────────────────┐
-                   │ Python / Pandas       │
-                   │ Data Ingestion        │
-                   │ Source Hashing        │
-                   └───────────┬───────────┘
+                  ┌───────────────────────┐
+                  │ Python / Pandas       │
+                  │ Data Ingestion        │
+                  │ Source Hashing        │
+                  └───────────┬───────────┘
                               │
                               ▼
-                   ┌───────────────────────┐
-                   │ PostgreSQL            │
-                   │ Raw / Staging Data   │
-                   └───────────┬───────────┘
+                  ┌───────────────────────┐
+                  │ PostgreSQL            │
+                  │ Raw / Staging Data    │
+                  └───────────┬───────────┘
                               │
                               ▼
-              ┌─────────────────────────────────┐
-              │ Reliability Evaluation          │
-              │                                 │
-              │ • Schema Validation             │
-              │ • Data Quality Checks            │
-              │ • Source-Total Validation        │
-              │ • Cross-Table Reconciliation     │
-              │ • KS / PSI / YoY Analysis        │
-              └───────────────┬─────────────────┘
-                              │
-                              ▼
-                       ┌─────────────────┐
-                       │ Reliability     │
-                       │ Gate             │
-                       └───────┬─────────┘
-                          PASS │ FAIL
-                       ┌────────┘ └─────────┐
-                       ▼                    ▼
-                Trusted Promotion      Incident Management
-                       │                    │
-                       ▼                    ▼
-                Trusted PostgreSQL      Incident Record
-                       │
-                       ▼
-                Read-Only Streamlit
-                    Dashboard
+             ┌─────────────────────────────────┐
+             │ Reliability Evaluation          │
+             │                                 │
+             │ • Schema Validation             │
+             │ • Data Quality Checks            │
+             │ • Source-Total Validation        │
+             │ • Cross-Table Reconciliation     │
+             │ • KS / PSI / Cross-Year Analysis │
+             └───────────────┬─────────────────┘
+                             │
+                             ▼
+                    ┌─────────────────┐
+                    │ Reliability     │
+                    │ Gate            │
+                    └───────┬─────────┘
+                       PASS │ FAIL
+                    ┌────────┘ └─────────┐
+                    ▼                    ▼
+             Trusted Promotion      Incident Management
+                    │                    │
+                    ▼                    ▼
+             Trusted PostgreSQL      Incident Record
+                    │
+                    ▼
+             Read-Only Streamlit
+                 Dashboard
 ```
 
 ### Airflow orchestration
@@ -131,7 +133,7 @@ reliability_decision
 
 The Airflow DAG handles orchestration and task dependencies while the core validation, reconciliation, statistical, and incident logic remains in `src/`.
 
-![Airflow DAG](docs/screenshots/airflow-dag.png)
+> **Screenshot — Airflow DAG:** Add a screenshot of the Airflow DAG graph here.
 
 ---
 
@@ -230,7 +232,7 @@ Under the current governance rules, this is a **non-blocking advisory**.
 
 ---
 
-## Year-over-Year Statistical Analysis
+## Cross-Year Statistical Analysis
 
 FY2022–23 is used as the historical reference snapshot and FY2023–24 as the comparison snapshot.
 
@@ -238,8 +240,8 @@ The statistical layer includes:
 
 - Two-sample Kolmogorov-Smirnov (KS) tests
 - Population Stability Index (PSI)
-- State-level year-over-year changes
-- Chapter-level year-over-year changes
+- State-level annual differences
+- Chapter-level annual differences
 - Zero-denominator safeguards
 
 ### Statistical interpretation
@@ -250,16 +252,16 @@ PSI uses project-configured interpretation thresholds and is treated as a descri
 
 The state × chapter KS analysis also accounts for the structured and dependent nature of the underlying matrix. Its statistical results are therefore interpreted as descriptive signals rather than independent-population inference.
 
-### Aggregate annual changes
+### Observed differences between annual snapshots
 
-| Measure | FY2022–23 | FY2023–24 | YoY Change |
+| Measure | FY2022–23 | FY2023–24 | Observed Difference |
 |---|---:|---:|---:|
 | Outward | ₹62,999,856.01 Cr | ₹10,429,324.40 Cr | -83.45% |
 | Inward | ₹62,999,856.01 Cr | ₹10,429,324.40 Cr | -83.45% |
 | Internal | ₹31,353,408.74 Cr | ₹9,890,462.58 Cr | -68.45% |
 | National Total | ₹94,353,264.75 Cr | ₹20,319,786.98 Cr | -78.46% |
 
-These are annual snapshot differences. The pipeline does not attribute them to a specific economic or causal explanation.
+These percentages are calculated differences between the two published annual snapshots. They are not treated as verified year-over-year economic or reporting trends. The pipeline does not attribute the differences to a specific economic, methodological, or causal explanation.
 
 ---
 
@@ -295,6 +297,7 @@ Examples include:
 
 - Unresolved `OTHER TERRITORY` reconciliation
 - Statistical distribution changes
+- Cross-year magnitude differences where comparability has not been independently established
 
 These conditions are retained in the audit trail but do not automatically block trusted promotion.
 
@@ -356,9 +359,9 @@ The run:
 | Incidents | 0 | **1 CRITICAL** |
 | Corrupted data promoted | No | **No** |
 
-![Clean Pipeline Run](docs/screenshots/clean-run.png)
+> **Screenshot — Clean Run:** Add Airflow/Streamlit screenshot showing the successful run and trusted-data promotion here.
 
-![Failure Pipeline Run](docs/screenshots/failure-run.png)
+> **Screenshot — Failure Run:** Add Airflow/Streamlit screenshot showing the failed reliability gate here.
 
 ---
 
@@ -413,7 +416,7 @@ An incident contains information such as:
 ```text
 CRITICAL
    │
- ERROR
+ERROR
    │
 WARNING
 ```
@@ -422,7 +425,7 @@ Only blocking `CRITICAL` or `ERROR` failures trigger the incident workflow.
 
 Email notification is optional and configured through environment variables. The database incident record remains authoritative if notification is disabled or unavailable.
 
-![Incident Detail](docs/screenshots/incident-detail.png)
+> **Screenshot — Incident:** Add the CRITICAL incident detail screenshot here.
 
 ---
 
@@ -470,7 +473,7 @@ Displays:
 
 - KS results
 - PSI results
-- YoY changes
+- Annual differences
 - Statistical interpretation notes
 
 #### Incidents
@@ -512,7 +515,7 @@ It does not:
 - Delete warehouse data
 - Alter database schema
 
-![Streamlit Dashboard Overview](docs/screenshots/failure-run.png)
+> **Screenshot — Dashboard Overview:** Add the clean/failure Streamlit Overview screenshot here.
 
 ---
 
@@ -532,21 +535,21 @@ Local Windows Machine
 │                   │                 │
 └───────────────────┼─────────────────┘
                     ▼
-           ┌─────────────────────┐
-           │ Docker PostgreSQL   │
-           │                     │
-           │ Internal: 5432      │
-           │ Host:     5434      │
-           └──────────▲──────────┘
-                      │
-                      │ postgres:5432
-                      │
-           ┌──────────┴──────────┐
-           │ Docker Airflow      │
-           │                     │
-           │ Scheduler           │
-           │ Webserver           │
-           └─────────────────────┘
+          ┌─────────────────────┐
+          │ Docker PostgreSQL   │
+          │                     │
+          │ Internal: 5432      │
+          │ Host:     5434      │
+          └──────────▲──────────┘
+                     │
+                     │ postgres:5432
+                     │
+          ┌──────────┴──────────┐
+          │ Docker Airflow      │
+          │                     │
+          │ Scheduler           │
+          │ Webserver           │
+          └─────────────────────┘
 ```
 
 The host machine connects to PostgreSQL through port `5434`.
@@ -810,22 +813,22 @@ Important tables include:
 ```text
 Raw / Source
 ├── raw_*
-
+│
 Validation
 ├── validation_results
-
+│
 Reconciliation
 ├── reconciliation_results
-
+│
 Statistics
 ├── statistical_results
-
+│
 Pipeline Monitoring
 ├── pipeline_runs
-
+│
 Incident Management
 ├── incidents
-
+│
 Trusted Data
 ├── trusted_state_movement
 ├── trusted_chapter_movement
@@ -904,11 +907,19 @@ A FY2023–24 reconciliation discrepancy remains unresolved because the availabl
 
 The pipeline therefore records it as `UNRESOLVED` and treats it as a non-blocking advisory.
 
-### 4. Controlled corruption scope
+### 4. Annual aggregate comparability
+
+The magnitude of the FY2022–23 to FY2023–24 aggregate difference (~78%) is reported as an observed snapshot difference, not a verified year-over-year trend.
+
+Although both annual workbooks were profiled as using INR Crore and each annual snapshot passes its internal reconciliation checks, the project has not established from DGCI&S documentation that the two publications are methodologically comparable at this aggregate level.
+
+The difference should therefore not be interpreted as an economic or reporting trend without that confirmation.
+
+### 5. Controlled corruption scope
 
 The corruption tests demonstrate detection of the specific configured scenarios. They are not evidence that every possible data defect will be detected.
 
-### 5. Source methodology
+### 6. Source methodology
 
 The pipeline validates the published data according to the relationships and assumptions that can be established from the available source material. It does not independently establish the methodology used to produce the original government statistics.
 
@@ -937,10 +948,8 @@ These documents contain the detailed test evidence, run identifiers, validation 
 
 **Kumar Saksham**
 
-B.Tech, Electronics & Communication Engineering  
-Birla Institute of Technology, Mesra
+B.Tech, Birla Institute of Technology, Mesra
 
-- GitHub: https://github.com/Saksham3124
 - LinkedIn: https://www.linkedin.com/in/kumarsaksham/
 
 ---
